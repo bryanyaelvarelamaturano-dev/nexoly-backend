@@ -7,30 +7,51 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http; // <-- IMPORTACIÓN CRUCIAL PARA LAS PETICIONES A GOOGLE
 use Illuminate\Support\Str;
 use Google_Client; 
-// LA LÍNEA QUE FALTABA ESTÁ AQUÍ ABAJO:
 use Cloudinary\Cloudinary;
 
 class AuthController extends Controller
 {
     /**
-     * Iniciar Sesión con Google
+     * Iniciar Sesión con Google (Actualizado para Access Token)
      */
     public function googleLogin(Request $request)
     {
-        $token = $request->input('token');
-        $client = new Google_Client(['client_id' => env('VITE_GOOGLE_CLIENT_ID')]); 
-        $payload = $client->verifyIdToken($token);
+        // 1. Capturamos el token que viene desde Vue
+        $accessToken = $request->input('access_token') ?? $request->input('token');
         
-        if (!$payload) {
-            return response()->json(['message' => 'Token de Google inválido'], 401);
+        if (!$accessToken) {
+            return response()->json(['message' => 'El token de acceso es requerido'], 400);
         }
 
-        $email = $payload['email'];
-        $name = $payload['name'];
-        $picture = $payload['picture'] ?? null;
+        // 2. Consultamos al endpoint oficial de Google para validar el Access Token
+        $googleResponse = Http::get("https://www.googleapis.com/oauth2/v3/tokeninfo", [
+            'access_token' => $accessToken
+        ]);
+        
+        if ($googleResponse->failed()) {
+            return response()->json(['message' => 'Token de Google inválido o expirado'], 401);
+        }
 
+        $payload = $googleResponse->json();
+        $email = $payload['email'];
+        
+        $name = $payload['name'] ?? explode('@', $email)[0];
+        
+        // Consultamos la información de usuario para obtener la foto de perfil
+        $userinfoResponse = Http::get("https://www.googleapis.com/oauth2/v3/userinfo", [
+            'access_token' => $accessToken
+        ]);
+        
+        $picture = null;
+        if ($userinfoResponse->successful()) {
+            $userData = $userinfoResponse->json();
+            $picture = $userData['picture'] ?? null;
+        }
+
+        // 3. Tu lógica original de base de datos intacta:
         $user = User::where('email', $email)->first();
         $isNewUser = false;
 
@@ -49,6 +70,7 @@ class AuthController extends Controller
             }
         }
 
+        // 4. Tu inicio de sesión con tu JWT nativo habitual
         $token = auth('api')->login($user);
 
         return response()->json([
@@ -86,9 +108,6 @@ class AuthController extends Controller
     /**
      * Registro de Usuario Manual
      */
-    /**
-     * Registro de Usuario Manual
-     */
     public function register(Request $request)
     {
         $request->validate([
@@ -96,7 +115,6 @@ class AuthController extends Controller
             'email' => 'required|string|email:rfc,dns|max:255|unique:users',
             'password' => 'required|string|min:6',
         ], [
-            // Aquí recuperamos tus mensajes personalizados:
             'email.email' => 'El formato del correo no es válido.',
             'email.unique' => 'Este correo ya está registrado.'
         ]);
@@ -167,7 +185,6 @@ class AuthController extends Controller
         $user->email = $request->input('email', $user->email);
 
         if ($request->hasFile('profile_image')) {
-            // Conexión directa
             $cl = new Cloudinary('cloudinary://221434432647777:88OjPz52kitHEJZNiPYGoGpthl8@dzdbewxmg');
             
             $upload = $cl->uploadApi()->upload($request->file('profile_image')->getRealPath(), [
@@ -195,6 +212,7 @@ class AuthController extends Controller
 
     public function logout()
     {
+        // Cierre seguro de JWT
         auth('api')->logout();
         return response()->json(['message' => 'Sesión cerrada correctamente']);
     }

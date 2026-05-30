@@ -31,10 +31,10 @@ return [
     | Application URL
     |--------------------------------------------------------------------------
     | IMPORTANTE: En Render, asegúrate de que la variable APP_URL 
-    | sea https://nexoly.onrender.com
+    | sea https://nexoly-backend.onrender.com
     */
 
-    'url' => env('APP_URL', 'https://nexoly.onrender.com'),
+    'url' => env('APP_URL', 'https://nexoly-backend.onrender.com'),
 
     'asset_url' => env('ASSET_URL'),
 
