@@ -18,86 +18,78 @@ class AuthController extends Controller
      * Iniciar Sesión con Google (Modo Diagnóstico de Errores)
      */
     public function googleLogin(Request $request)
-    {
-        try {
-            // 1. Capturamos el token
-            $accessToken = $request->input('access_token') ?? $request->input('token');
-            
-            if (!$accessToken) {
-                return response()->json(['message' => 'El token de acceso es requerido'], 400);
-            }
-
-            // 2. Consultamos al endpoint oficial de Google usando el lector nativo de PHP
-            $tokenUrl = "https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=" . urlencode($accessToken);
-            
-            $context = stream_context_create([
-                "http" => ["ignore_errors" => true],
-                "ssl"  => ["verify_peer" => false, "verify_peer_name" => false]
-            ]);
-
-            $responseJson = @file_get_contents($tokenUrl, false, $context);
-            
-            if (!$responseJson) {
-                throw new \Exception('Error de conexión o fallo al ejecutar file_get_contents con Google.');
-            }
-
-            $payload = json_decode($responseJson, true);
-
-            if (isset($payload['error']) || isset($payload['error_description'])) {
-                return response()->json(['message' => 'Token de Google inválido o expirado', 'details' => $payload], 401);
-            }
-
-            $email = $payload['email'];
-            $name = $payload['name'] ?? explode('@', $email)[0];
-            
-            $userinfoUrl = "https://www.googleapis.com/oauth2/v3/userinfo?access_token=" . urlencode($accessToken);
-            $userinfoJson = @file_get_contents($userinfoUrl, false, $context);
-            
-            $picture = null;
-            if ($userinfoJson) {
-                $userData = json_decode($userinfoJson, true);
-                $picture = $userData['picture'] ?? null;
-            }
-
-            // 3. Lógica de base de datos
-            $user = User::where('email', $email)->first();
-            $isNewUser = false;
-
-            if (!$user) {
-                $user = User::create([
-                    'name' => $name,
-                    'email' => $email,
-                    'password' => Hash::make(Str::random(24)), 
-                    'profile_image' => $picture,
-                    'role_id' => 1, 
-                ]);
-                $isNewUser = true;
-            } else {
-                if (empty($user->city) || empty($user->country)) {
-                    $isNewUser = true;
-                }
-            }
-
-            // 4. Generación del JWT
-            $token = auth('api')->login($user);
-
-            return response()->json([
-                'access_token' => $token,
-                'token_type' => 'bearer',
-                'user' => $user,
-                'is_new_user' => $isNewUser
-            ]);
-
-        } catch (\Throwable $e) {
-            // 🔥 LA MAGIA ESTÁ AQUÍ: Si algo falla, Laravel te lo va a escupir en el navegador
-            return response()->json([
-                'error_diagnostico' => true,
-                'mensaje' => $e->getMessage(),
-                'archivo' => $e->getFile(),
-                'linea'   => $e->getLine()
-            ], 500);
+{
+    try {
+        // 1. Capturamos el token (Capacitor manda 'idToken' o 'token')
+        $idToken = $request->input('idToken') ?? $request->input('token') ?? $request->input('access_token');
+        
+        if (!$idToken) {
+            return response()->json(['message' => 'El token de identidad (idToken) es requerido'], 400);
         }
+
+        // 2. Consultamos al endpoint CORRECTO de Google para verificar ID Tokens
+        $tokenUrl = "https://oauth2.googleapis.com/tokeninfo?id_token=" . urlencode($idToken);
+        
+        $context = stream_context_create([
+            "http" => ["ignore_errors" => true],
+            "ssl"  => ["verify_peer" => false, "verify_peer_name" => false]
+        ]);
+
+        $responseJson = @file_get_contents($tokenUrl, false, $context);
+        
+        if (!$responseJson) {
+            throw new \Exception('Error de conexión con los servidores de validación de Google.');
+        }
+
+        $payload = json_decode($responseJson, true);
+
+        if (isset($payload['error']) || isset($payload['error_description'])) {
+            return response()->json(['message' => 'Token de Google inválido o expirado', 'details' => $payload], 401);
+        }
+
+        // 3. Extraemos la información del payload del ID Token
+        $email = $payload['email'];
+        $name = $payload['name'] ?? explode('@', $email)[0];
+        $picture = $payload['picture'] ?? null; // El ID Token ya trae la foto, no necesitas hacer otra petición
+
+        // 4. Lógica de base de datos
+        $user = User::where('email', $email)->first();
+        $isNewUser = false;
+
+        if (!$user) {
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'password' => Hash::make(Str::random(24)), 
+                'profile_image' => $picture,
+                'role_id' => 1, 
+            ]);
+            $isNewUser = true;
+        } else {
+            if (empty($user->city) || empty($user->country)) {
+                $isNewUser = true;
+            }
+        }
+
+        // 5. Generación del JWT de tu app
+        $token = auth('api')->login($user);
+
+        return response()->json([
+            'access_token' => $token,
+            'token_type' => 'bearer',
+            'user' => $user,
+            'is_new_user' => $isNewUser
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'error_diagnostico' => true,
+            'mensaje' => $e->getMessage(),
+            'archivo' => $e->getFile(),
+            'linea'   => $e->getLine()
+        ], 500);
     }
+}
     /**
      * Iniciar Sesión Tradicional
      */
