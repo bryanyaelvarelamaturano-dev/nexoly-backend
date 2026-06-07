@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\ContractController;
 use App\Http\Controllers\Api\ReviewController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\VerificationController;
 use App\Http\Controllers\AdminController;
 
 // --- RUTAS PÚBLICAS ---
@@ -17,6 +19,10 @@ Route::get('services/{id}', [ServiceController::class, 'show']);
 Route::get('categories', [ServiceController::class, 'categories']); 
 Route::get('services/{id}/reviews', [ReviewController::class, 'index']); 
 
+// 🚨 CRÍTICO: El Webhook de Stripe debe ser público porque Stripe te manda los eventos directamente.
+// Ya lo excluimos de la validación CSRF en bootstrap/app.php
+Route::post('webhooks/stripe', [PaymentController::class, 'handleWebhook']);
+
 // --- RUTAS PROTEGIDAS (Auth:api) ---
 Route::group(['middleware' => 'auth:api'], function () {
     
@@ -25,8 +31,11 @@ Route::group(['middleware' => 'auth:api'], function () {
     
     // --- GESTIÓN DE PERFIL ---
     Route::post('user/update', [AuthController::class, 'updateProfile']); 
-    // ✨ NUEVA RUTA: Para completar datos tras registro con Google
     Route::post('user/complete-profile', [AuthController::class, 'completeProfile']); 
+
+    // --- VERIFICACIÓN PROFESIONAL (KYC) ---
+    Route::post('verification/submit', [VerificationController::class, 'submitVerification']);
+    Route::get('verification/status', [VerificationController::class, 'getMyStatus']);
 
     // --- GESTIÓN DE SERVICIOS ---
     Route::get('my-services', [ServiceController::class, 'userServices']); 
@@ -37,7 +46,7 @@ Route::group(['middleware' => 'auth:api'], function () {
 
     // --- CONTRATACIONES Y PAGOS ---
     Route::post('contracts', [ContractController::class, 'store']); 
-    Route::post('payments/process', [ContractController::class, 'store']); 
+    Route::post('payments/process', [PaymentController::class, 'process']); // ✨ Enlazado al controlador real de Stripe
     Route::get('my-contracts', [ContractController::class, 'myContracts']); 
     Route::get('seller/orders', [ContractController::class, 'sellerOrders']);
     
@@ -52,14 +61,18 @@ Route::group(['middleware' => 'auth:api'], function () {
     Route::get('messages/{userId}', [MessageController::class, 'conversation']); 
     Route::post('messages', [MessageController::class, 'store']); 
 
-    // --- PANEL ADMIN ---
+    // --- PANEL ADMIN (Protegido por IsAdmin) ---
     Route::group(['prefix' => 'admin', 'middleware' => 'is_admin'], function () {
         Route::get('metrics', [AdminController::class, 'metrics']);
         Route::get('users', [AdminController::class, 'users']);
         Route::get('services', [AdminController::class, 'services']);
         Route::get('transactions', [AdminController::class, 'transactions']);
-        // Se corrigió un pequeño error de sintaxis en el archivo anterior (@Route)
         Route::patch('users/{id}', [AdminController::class, 'updateUser']);
         Route::patch('services/{id}', [AdminController::class, 'toggleService']);
+
+        // ✨ NUEVAS RUTAS: Control de KYC para el Admin de Nexoly
+        Route::get('verifications/pending', [VerificationController::class, 'indexPendings']);
+        Route::post('verifications/{id}/approve', [VerificationController::class, 'approve']);
+        Route::post('verifications/{id}/reject', [VerificationController::class, 'reject']);
     });
 });

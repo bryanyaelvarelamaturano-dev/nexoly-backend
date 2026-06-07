@@ -28,36 +28,51 @@ class Service extends Model
      * Calcula un porcentaje basado en el promedio de estrellas y atributos positivos.
      */
     public function getReliabilityScoreAttribute()
-{
-    if (!$this->relationLoaded('reviews') || $this->reviews->isEmpty()) {
-        return 100;
+    {
+        if (!$this->relationLoaded('reviews') || $this->reviews->isEmpty()) {
+            return 100;
+        }
+
+        try {
+            $reviews = $this->reviews;
+            $total = $reviews->count();
+
+            $avgStars = $reviews->avg('rating') ?? 0;
+            $starScore = ($avgStars / 5) * 70;
+
+            $positiveReviews = $reviews->filter(function ($review) {
+                $attrs = $review->getAttribute('attributes');
+
+                if (is_string($attrs)) {
+                    $attrs = json_decode($attrs, true);
+                }
+
+                return is_array($attrs) && count($attrs) > 0;
+            })->count();
+
+            $attributeScore = ($positiveReviews / $total) * 30;
+
+            return (int) round($starScore + $attributeScore);
+        } catch (\Throwable $e) {
+            return 100;
+        }
     }
 
-    try {
-        $reviews = $this->reviews;
-        $total = $reviews->count();
+    // --- SCOPES ---
 
-        $avgStars = $reviews->avg('rating') ?? 0;
-        $starScore = ($avgStars / 5) * 70;
-
-        $positiveReviews = $reviews->filter(function ($review) {
-            $attrs = $review->getAttribute('attributes');
-
-            if (is_string($attrs)) {
-                $attrs = json_decode($attrs, true);
-            }
-
-            return is_array($attrs) && count($attrs) > 0;
-        })->count();
-
-        $attributeScore = ($positiveReviews / $total) * 30;
-
-        return (int) round($starScore + $attributeScore);
-    } catch (\Throwable $e) {
-        return 100;
+    /**
+     * Scope para filtrar solo los servicios cuyos creadores estén verificados.
+     * Evita que aparezcan servicios de usuarios pendientes o rechazados.
+     */
+    public function scopeVisible($query)
+    {
+        return $query->whereHas('user', function ($userQuery) {
+            $userQuery->where('is_verified', true)
+                     ->where('verification_tier', 'verified');
+        });
     }
-}
 
+    // --- RELACIONES ---
 
     /**
      * Relación con el Usuario (Dueño del servicio)

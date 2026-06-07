@@ -24,13 +24,22 @@ class User extends Authenticatable implements JWTSubject
         'profile_image',
         'role_id',
         'is_suspended',
-        // --- NUEVOS CAMPOS AGREGADOS ---
         'country',
         'state',
         'city',
         'business_name',
         'google_id',
         'avatar',
+        // --- NUEVOS CAMPOS AGREGADOS PARA KYC Y PAYMENTS ---
+        'is_verified',
+        'verification_tier',
+        'provider_status',
+        'bank_account_holder',
+        'bank_account_number',
+        'bank_routing_number',
+        'bank_country',
+        'verified_at',
+        'last_verification_check',
     ];
 
     /**
@@ -49,6 +58,10 @@ class User extends Authenticatable implements JWTSubject
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            // --- NUEVOS CASTS DE FECHAS ---
+            'verified_at' => 'datetime',
+            'last_verification_check' => 'datetime',
+            'is_verified' => 'boolean',
         ];
     }
 
@@ -66,6 +79,16 @@ class User extends Authenticatable implements JWTSubject
          * por ahora lo dejamos vacío.
          */
         return [];
+    }
+
+    // --- MÉTODOS DE LÓGICA DE NEGOCIO ---
+
+    /**
+     * Determina si el usuario es un proveedor verificado y activo.
+     */
+    public function isVerifiedProvider(): bool
+    {
+        return $this->is_verified && $this->verification_tier === 'verified' && $this->provider_status === 'active';
     }
 
     // --- RELACIONES ---
@@ -100,5 +123,21 @@ class User extends Authenticatable implements JWTSubject
     public function receivedMessages()
     {
         return $this->hasMany(\App\Models\Message::class, 'receiver_id');
+    }
+
+    /**
+     * Un usuario tiene un expediente de verificación profesional (KYC)
+     */
+    public function professionalVerification()
+    {
+        return $this->hasOne(\App\Models\ProfessionalVerification::class, 'user_id');
+    }
+
+    /**
+     * Un usuario puede tener múltiples tokens o métodos de pago registrados en Stripe
+     */
+    public function stripeTokens()
+    {
+        return $this->hasMany(\App\Models\StripeCustomerToken::class);
     }
 }
