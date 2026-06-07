@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 
 class VerificationController extends Controller
 {
-    public function submit(Request $request)
+    public function submitVerification(Request $request)
     {
         // 1. Validar que sí venga un archivo y que sea del formato correcto
         $validator = Validator::make($request->all(), [
